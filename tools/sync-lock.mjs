@@ -25,9 +25,20 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// 本脚本所在目录（用于定位插件自带的 js-yaml，不硬编码任何本机路径）
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const [profileDir, pluginName, linkTarget, ...rest] = process.argv.slice(2);
 const remove = rest.includes('--remove');
+
+// DSH 数据根目录：优先环境变量，其次从 profileDir 反推（<DSH_HOME>/profiles/<name>）
+const DSH_HOME =
+  process.env.DSH_HOME ||
+  (profileDir && path.basename(path.dirname(path.resolve(profileDir))) === 'profiles'
+    ? path.dirname(path.dirname(path.resolve(profileDir)))
+    : '');
 
 if (!profileDir || !pluginName || (!linkTarget && !remove)) {
   console.log('ERROR:用法 node sync-lock.mjs <profileDir> <pluginName> <linkTargetAbs> [--remove]');
@@ -116,12 +127,25 @@ const out = lines.join('\n');
 fs.writeFileSync(lockPath, out, 'utf8');
 
 // 若本机有 js-yaml 则做一次语法复验（找不到就跳过，不阻断）
+// 不硬编码任何本机路径：依次尝试 ①插件自带 node_modules ②DSH_HOME/profiles/node_modules ③裸包名
 let chk = '';
 try {
-  const yaml = await import('file:///C:/Users/Administrator/.dsh/profiles/node_modules/js-yaml/index.js');
-  const d = (yaml.default || yaml).load(out);
-  const imp = d?.importers?.['.'] || {};
-  chk = ` | YAML OK deps=${Object.keys(imp.dependencies || {}).length}`;
+  const { pathToFileURL } = await import('node:url');
+  const cands = [
+    path.join(HERE, '..', 'node_modules', 'js-yaml', 'index.js'),
+    path.join(HERE, '..', 'plugin', 'node_modules', 'js-yaml', 'index.js'),
+    path.join(DSH_HOME || '', 'profiles', 'node_modules', 'js-yaml', 'index.js'),
+  ];
+  let mod = null;
+  for (const c of cands) {
+    if (c && fs.existsSync(c)) { mod = await import(pathToFileURL(c).href); break; }
+  }
+  if (!mod) { try { mod = await import('js-yaml'); } catch { /* 裸包名也不可用 */ } }
+  if (mod) {
+    const d = (mod.default || mod).load(out);
+    const imp = d?.importers?.['.'] || {};
+    chk = ` | YAML OK deps=${Object.keys(imp.dependencies || {}).length}`;
+  }
 } catch { /* 无 js-yaml，跳过 */ }
 
 console.log('PATCHED ' + lockPath + chk);
