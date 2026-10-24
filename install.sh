@@ -1,187 +1,174 @@
 #!/usr/bin/env bash
-# 富江破甲安装脚本
+# 富江破甲 fujiang-armor v0.4.5 —— Linux / macOS 安装器
+# 用法: ./install.sh [-p profile[,profile...]] [-d DSH_HOME] [-n NODE] [-F]
 set -euo pipefail
 
-PLUGIN_NAME="fujiang-armor"
-PLUGIN_LABEL="富江破甲"
-LEGACY_PLUGINS=()
-DSH_ROOT="${DSH_HOME:-$HOME/.dsh}"
-PLUGINS_DIR="$DSH_ROOT/plugins"
-DEST_DIR="$PLUGINS_DIR/$PLUGIN_NAME"
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROFILES=""
+DSH_HOME_ARG=""
+NODE_ARG=""
+FORCE=0
+PKG_NAME="fujiang-armor"
 
-step() { printf "\n==> %s\n" "$1"; }
-ok()   { printf "    [OK] %s\n" "$1"; }
-warn() { printf "    [!] %s\n" "$1"; }
-err()  { printf "    [X] %s\n" "$1" >&2; }
+usage() {
+  cat <<EOF
+用法: $0 [选项]
 
-# ---------- 探测 DSH profile 目录（web / default / 手动选择） ----------
-find_profile_dirs() {
-  local profiles_root="$1"
-
-  if [[ -n "${DSH_PROFILE:-}" ]]; then
-    local cand="$profiles_root/$DSH_PROFILE"
-    if [[ -f "$cand/package.json" ]]; then echo "$cand"; return 0; fi
-    warn "环境变量 DSH_PROFILE 指向的目录不存在：$cand（继续自动探测）"
-  fi
-
-  local found=()
-  for name in web default desktop; do
-    local cand="$profiles_root/$name"
-    if [[ -f "$cand/package.json" ]]; then found+=("$cand"); fi
-  done
-  if [[ ${#found[@]} -gt 0 ]]; then printf '%s\n' "${found[@]}"; return 0; fi
-
-  local dirs=()
-  for d in "$profiles_root"/*/; do
-    [[ -d "$d" && -f "$d/package.json" ]] && dirs+=("$d")
-  done
-  if [[ ${#dirs[@]} -eq 1 ]]; then echo "${dirs[0]}"; return 0; fi
-  if [[ ${#dirs[@]} -gt 1 ]]; then
-    echo "检测到多个 DSH profile，请选择要安装的目标：" >&2
-    for i in "${!dirs[@]}"; do printf "  [%d] %s\n" "$((i+1))" "${dirs[$i]}" >&2; done
-    read -rp "请输入序号: " sel
-    local idx=$((sel-1))
-    if (( idx >= 0 && idx < ${#dirs[@]} )); then echo "${dirs[$idx]}"; return 0; fi
-    err "选择无效，退出。"
-    exit 1
-  fi
-  return 1
-}
-
-# ---------- [1] 检查环境 ----------
-step "检查环境"
-
-[[ -d "$DSH_ROOT" ]] || { err "未找到 DSH 目录：$DSH_ROOT"; exit 1; }
-mapfile -t PROFILE_DIRS < <(find_profile_dirs "$DSH_ROOT/profiles") || {
-  err "未找到 DSH profile 目录（$DSH_ROOT/profiles 下没有含 package.json 的目录）。"
-  echo "可通过环境变量指定：DSH_PROFILE=web（或 default）后重新运行。"
-  exit 1
-}
-for p in "${PROFILE_DIRS[@]}"; do ok "DSH profile 目录：$p"; done
-
-command -v pnpm >/dev/null 2>&1 || {
-  err "未检测到 pnpm，请先安装：npm install -g pnpm"
-  exit 1
-}
-ok "pnpm 可用：$(command -v pnpm)"
-
-# ---------- [1.5] 清理旧版残留 ----------
-step "检查旧版本"
-
-node "$SRC_DIR/scripts/lib/migrate.js" "$DSH_ROOT" "${PROFILE_DIRS[@]}" >/dev/null
-ok "旧版注册与依赖已迁移，配置备份已保留。"
-
-for old in "${LEGACY_PLUGINS[@]}"; do
-  if [[ -d "$PLUGINS_DIR/$old" ]]; then
-    rm -rf "$PLUGINS_DIR/$old"
-    ok "已清理旧版插件目录：$PLUGINS_DIR/$old"
-  fi
-done
-
-# ---------- [2] 复制插件（自动覆盖旧版） ----------
-step "复制插件文件"
-
-mkdir -p "$PLUGINS_DIR"
-if [[ -d "$DEST_DIR" ]]; then
-  warn "检测到已存在的 $PLUGIN_NAME 目录，自动覆盖更新"
-  rm -rf "$DEST_DIR"
-fi
-mkdir -p "$DEST_DIR"
-cp -R "$SRC_DIR"/. "$DEST_DIR"/
-rm -rf "$DEST_DIR/.git" "$DEST_DIR/install.sh" "$DEST_DIR/uninstall.sh" \
-       "$DEST_DIR/install.ps1" "$DEST_DIR/uninstall.ps1" 2>/dev/null || true
-ok "插件已复制到：$DEST_DIR"
-
-# ---------- [3] 备份 package.json ----------
-step "备份 package.json"
-
-for p in "${PROFILE_DIRS[@]}"; do
-  BAK_PATH="$p/package.json.bak-$(date +%Y%m%d-%H%M%S)"
-  cp "$p/package.json" "$BAK_PATH"
-  ok "备份完成：$BAK_PATH"
-done
-
-# ---------- [4] 写入依赖与 bundles（幂等 + 迁移旧版） ----------
-step "写入 profile 配置"
-
-for p in "${PROFILE_DIRS[@]}"; do
-  PKG_PATH="$p/package.json"
-  PATCH_PATH="$p/cordis.patch.yml"
-  node - "$PKG_PATH" "$PATCH_PATH" "$PLUGIN_NAME" "${LEGACY_PLUGINS[@]}" <<'NODE'
-const fs = require("fs");
-const [pkgPath, patchPath, name, ...legacy] = process.argv.slice(2);
-const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-pkg.dependencies = pkg.dependencies || {};
-for (const old of legacy) delete pkg.dependencies[old];
-pkg.dependencies[name] = "file:../../plugins/" + name;
-if (pkg.dsh && pkg.dsh.profile && pkg.dsh.profile.bundles) {
-  pkg.dsh.profile.bundles = pkg.dsh.profile.bundles.filter((b) => !legacy.includes(b) && b !== name);
-}
-fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-
-let patchContent = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, "utf8") : "";
-let cleanedPatch = patchContent.replace(/^\s*\[\]\s*$/m, "");
-for (const old of legacy) {
-  const reg = new RegExp("^\\s*-\\s*insert:\\s*\\r?\\n\\s*-\\s*id:\\s*" + old + "[\\s\\S]*?(?=(^\\s*-\\s*insert:|\\z))", "gm");
-  cleanedPatch = cleanedPatch.replace(reg, "");
-}
-cleanedPatch = cleanedPatch.trim();
-const overlayBlock = "- id: system-prompt\n  config:\n    includeHarnessIdentity: false\n    personaPrefix: \"\"\n    personaSuffix: Your working directory is {{cwd}}.\n- insert:\n    - id: " + name + "\n      name: '" + name + "'\n      config:\n        enabled: true\n        autoApplyOnStart: true";
-
-if (!new RegExp("^\\s*-\\s*id:\\s*" + name, "m").test(cleanedPatch)) {
-  if (cleanedPatch && !/id:\s*system-prompt/.test(cleanedPatch)) {
-    cleanedPatch = cleanedPatch + "\n\n" + overlayBlock;
-  } else if (!cleanedPatch) {
-    cleanedPatch = overlayBlock;
-  } else {
-    const insertBlock = "- insert:\n    - id: " + name + "\n      name: '" + name + "'\n      config:\n        enabled: true\n        autoApplyOnStart: true";
-    cleanedPatch = cleanedPatch + "\n\n" + insertBlock;
-  }
-}
-fs.writeFileSync(patchPath, cleanedPatch + "\n");
-NODE
-  ok "package.json 与 cordis.patch.yml 已更新：$p"
-
-  # ---------- [4.5] 自动应用 0.1.6 核心兼容补丁 ----------
-  node -e "import('$SRC_DIR/scripts/lib/patcher.js').then(m => m.applyAllPatches({dshHome: '$DSH_ROOT'})).catch(()=>{})" 2>/dev/null || true
-  ok "0.1.6 核心指令过滤与兼容补丁已就绪"
-
-  # ---------- [5] pnpm install ----------
-  step "安装依赖（pnpm install）"
-
-  # pnpm 对 file: 依赖是复制进 node_modules 而非实时链接；先清除旧拷贝，
-  # 强制 pnpm 重新同步，避免更新插件后 index.js/client.js 不同步
-  if [[ -d "$p/node_modules/$PLUGIN_NAME" ]]; then
-    rm -rf "$p/node_modules/$PLUGIN_NAME"
-    ok "已清除 node_modules 旧拷贝，pnpm 将重新同步"
-  fi
-  for old in "${LEGACY_PLUGINS[@]}"; do
-    if [[ -d "$p/node_modules/$old" ]]; then rm -rf "$p/node_modules/$old"; fi
-  done
-
-  # 优先建立软链接
-  mkdir -p "$p/node_modules"
-  ln -sfn "$DEST_DIR" "$p/node_modules/$PLUGIN_NAME" 2>/dev/null || true
-
-  (
-    cd "$p"
-    if ! pnpm install; then
-      err "pnpm install 失败，请手动执行：cd $p && pnpm install"
-      exit 1
-    fi
-  )
-  ok "依赖安装完成"
-done
-
-# ---------- [6] 完成 ----------
-step "安装完成"
-
-cat <<EOF
-
-  $PLUGIN_LABEL v0.4.3 已安装！
-  目标 profile：$(printf '%s ' "${PROFILE_DIRS[@]}" | sed 's/ *$//')
-  最后一步：重启 DeepSeek Harness（Web 版刷新页面 / 桌面版重新打开），新建会话即可生效。
-  验证方法：重启后输入框上方应显示绿色状态条「富江破甲已激活」。
-  卸载方法：运行 ./uninstall.sh。
+  -p, --profile <list>   目标 profile，逗号分隔（web,desktop 或 all）。默认全部现有 profile
+  -d, --dsh-home <dir>   DSH 数据根目录。默认 \$DSH_HOME 或 ~/.dsh
+  -n, --node <path>      node 可执行文件路径。默认自动探测
+  -F, --force            覆盖已存在的插件目录（先备份）
+  -h, --help             显示本帮助
 EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p|--profile) PROFILES="${2:-}"; shift 2 ;;
+    -d|--dsh-home) DSH_HOME_ARG="${2:-}"; shift 2 ;;
+    -n|--node) NODE_ARG="${2:-}"; shift 2 ;;
+    -F|--force) FORCE=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "未知参数: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 两种布局自适应：
+#   ① Release ZIP 布局：<root>/plugin/  （含内置 node_modules，零联网）
+#   ② Git 仓库/源码布局：插件文件直接在 <root>/
+SRC="$HERE/plugin"
+[ -f "$SRC/index.js" ] || SRC="$HERE"
+
+echo "== [0] 包体自检 =="
+for f in index.js client.js package.json cordis.patch.yml cordis.override.patch.yml prompts locale node_modules; do
+  [ -e "$SRC/$f" ] || { echo "缺少必需项: $f" >&2; exit 1; }
+done
+VER="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SRC/package.json" | head -n1)"
+echo "插件版本: $VER"
+
+echo "== [1] 定位 DSH_HOME =="
+if [ -n "$DSH_HOME_ARG" ]; then DSH_HOME="$DSH_HOME_ARG"
+elif [ -n "${DSH_HOME:-}" ]; then DSH_HOME="$DSH_HOME"
+else DSH_HOME="$HOME/.dsh"; fi
+[ -d "$DSH_HOME" ] || { echo "找不到 DSH 数据目录: $DSH_HOME（先启动一次 DSH，或用 -d 指定）" >&2; exit 1; }
+echo "DSH_HOME = $DSH_HOME"
+
+echo "== [2] 定位 node =="
+NODE_BIN=""
+if [ -n "$NODE_ARG" ]; then NODE_BIN="$NODE_ARG"
+else
+  for c in "$DSH_HOME"/dsh-runtimes/*/dependencies/node/bin/node; do
+    [ -x "$c" ] && { NODE_BIN="$c"; break; }
+  done
+  [ -z "$NODE_BIN" ] && command -v node >/dev/null 2>&1 && NODE_BIN="$(command -v node)"
+fi
+[ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ] || { echo "找不到 node 可执行文件（需 >= 22.19）" >&2; exit 1; }
+echo "node = $NODE_BIN ($("$NODE_BIN" -v))"
+
+echo "== [3] 枚举 profile =="
+PLIST=()
+if [ -n "$PROFILES" ] && [ "$PROFILES" != "all" ]; then
+  IFS=',' read -r -a PLIST <<< "$PROFILES"
+else
+  ALL=()
+  for d in "$DSH_HOME"/profiles/*/; do
+    name="$(basename "$d")"
+    case "$name" in *.bak*|node_modules) continue ;; esac
+    [ -f "$d/package.json" ] && ALL+=("$name")
+  done
+  if [ "$PROFILES" = "all" ]; then
+    PLIST=("${ALL[@]}")
+  else
+    # 默认（傻瓜模式）：只装 web 与 desktop，不塞进 xiufu 等专用 profile
+    for n in "${ALL[@]}"; do
+      case "$n" in web|desktop) PLIST+=("$n") ;; esac
+    done
+    if [ ${#PLIST[@]} -eq 0 ]; then PLIST=("${ALL[@]}"); echo "本机没有 web/desktop，改为全部 profile"; fi
+  fi
+fi
+[ ${#PLIST[@]} -gt 0 ] || { echo "没有找到可用 profile" >&2; exit 1; }
+echo "目标 profile: ${PLIST[*]}"
+
+echo "== [4] 插件落盘 =="
+PLUGIN_DIR="$DSH_HOME/local-plugins/$PKG_NAME"
+mkdir -p "$DSH_HOME/local-plugins"
+if [ -d "$PLUGIN_DIR" ]; then
+  if [ "$FORCE" -eq 1 ]; then
+    BAK="$PLUGIN_DIR.bak-$(date +%Y%m%d-%H%M%S)"
+    mv "$PLUGIN_DIR" "$BAK"
+    echo "已备份旧插件目录 → $BAK"
+  else
+    echo "已存在 $PLUGIN_DIR（跳过复制，用 -F 覆盖）"
+  fi
+fi
+if [ ! -d "$PLUGIN_DIR" ]; then
+  mkdir -p "$PLUGIN_DIR"
+  if [ "$SRC" = "$HERE" ]; then
+    # 源码布局：只复制插件本体白名单，不把 .git / legacy / 安装器搬进去
+    for f in index.js client.js package.json cordis.patch.yml cordis.override.patch.yml \
+             icon.svg LICENSE THIRD-PARTY-NOTICES.md README.md README-zh.md README-es.md README-pt.md README-hi.md; do
+      [ -f "$SRC/$f" ] && cp "$SRC/$f" "$PLUGIN_DIR/$f"
+    done
+    for d in prompts locale scripts tests node_modules; do
+      [ -d "$SRC/$d" ] && cp -R "$SRC/$d" "$PLUGIN_DIR/$d"
+    done
+    echo "已复制插件本体（源码布局）→ $PLUGIN_DIR"
+  else
+    cp -R "$SRC/." "$PLUGIN_DIR/"
+    echo "已复制插件 → $PLUGIN_DIR"
+  fi
+fi
+
+echo "-- 语法与加载自检 --"
+"$NODE_BIN" --check "$PLUGIN_DIR/index.js"
+"$NODE_BIN" --check "$PLUGIN_DIR/client.js"
+"$NODE_BIN" "$HERE/tools/probe-plugin.mjs" "$PLUGIN_DIR"
+
+echo "== [5] 逐 profile 挂载 =="
+FAIL=0
+printf "%-12s %-6s %-8s %-8s\n" Profile Mount Declare Verify
+printf "%-12s %-6s %-8s %-8s\n" ------- ----- ------- ------
+for p in "${PLIST[@]}"; do
+  PDIR="$DSH_HOME/profiles/$p"
+  [ -f "$PDIR/package.json" ] || { printf "%-12s %s\n" "$p" "SKIP(无 package.json)"; continue; }
+
+  "$NODE_BIN" "$HERE/tools/patch-profile.mjs" "$PDIR" "$PKG_NAME" "$PLUGIN_DIR" >/dev/null || { printf "%-12s %s\n" "$p" "DECLARE-FAIL"; FAIL=1; continue; }
+
+  LINK="$PDIR/node_modules/$PKG_NAME"
+  mkdir -p "$PDIR/node_modules"
+  if [ -L "$LINK" ]; then echo "  已存在 symlink → $LINK"
+  elif [ -d "$LINK" ]; then rm -rf "$LINK"; ln -s "$PLUGIN_DIR" "$LINK"; echo "  已替换为 symlink → $LINK"
+  else ln -s "$PLUGIN_DIR" "$LINK"; echo "  已创建 symlink → $LINK"; fi
+
+  # pnpm-lock 账本同步：不做这步，将来任何一次 pnpm install 都会抹掉上面的 symlink，
+  # 插件静默失联（宿主零 warn 零 error）。
+  if [ -f "$HERE/tools/sync-lock.mjs" ]; then
+    LOCKOUT="$("$NODE_BIN" "$HERE/tools/sync-lock.mjs" "$PDIR" "$PKG_NAME" "$PLUGIN_DIR" 2>&1)" || true
+    echo "  pnpm-lock: $LOCKOUT"
+  fi
+
+  RES="$("$NODE_BIN" -e '
+    const {createRequire}=require("module");const {join}=require("path");
+    const r=createRequire(join(process.argv[1],"package.json"));
+    const out=[];
+    for(const n of ["fujiang-armor","@deepseek-ai/cordis","@deepseek-ai/dsh-tools","@deepseek-ai/schemastery"]){
+      try{out.push(n+"="+r(n+"/package.json").version)}catch(e){out.push(n+"=MISS")}
+    }
+    console.log(out.join(" "));
+  ' "$PDIR" 2>&1)" || RES="resolve-error"
+  case "$RES" in *MISS*|*error*) printf "%-12s %-6s %-8s %-8s\n" "$p" "OK" "OK" "RESOLVE-FAIL"; FAIL=1; continue ;; esac
+  printf "%-12s %-6s %-8s %-8s\n" "$p" "OK" "OK" "OK"
+  echo "  解析链: $RES"
+done
+
+if [ "$FAIL" -ne 0 ]; then
+  echo ""
+  echo "安装失败。回滚方法："
+  echo "  1) cp <profile>/package.json.bak-*-fujiang-armor <profile>/package.json"
+  echo "  2) rm -f <profile>/node_modules/$PKG_NAME"
+  exit 1
+fi
+
+echo ""
+echo "安装成功！目标 profile: ${PLIST[*]}"
+echo "请完全退出并重启 DSH 后生效。"

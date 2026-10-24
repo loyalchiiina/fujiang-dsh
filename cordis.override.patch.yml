@@ -1,0 +1,22 @@
+# 富江破甲 (fujiang-armor) —— system-prompt 覆盖层
+#
+# 单独一个文件承载"覆盖已存在行"的 patch，与主 patch（insert）分开，原因是
+# `dsh-plugin-dev check` 0.3.39 的 patch 解析器只承认 `<verb>: [rows]` 形态，
+# 会把官方发布的 `- id: X` + `config:` 覆盖行误判为 "must have exactly one verb key"。
+# 运行时（dsh-app-boot 的 applyEntryPatches）完全支持这种覆盖形态，官方 bundle
+# `dsh-deepseek-web-free` 就是这么写的。
+#
+# 语义提醒：
+#   1) 覆盖是按 id 找到已存在行后**逐字段覆盖**，其中 `config` 是整块替换、不是深合并。
+#      未写出的键由 Schemastery 的默认值补齐（includeRuntimeContext=true /
+#      personaPrefix='' / personaSuffix=''），因此这里只需写出要改的那一个键。
+#   2) 不要写 `{{cwd}}`：0.2.1 起内置插值变量只剩 `{{model}}` / `{{provider}}`，
+#      未注册变量会在渲染系统提示时抛错，导致每次模型请求失败（原 0.4.3 的致命缺陷）。
+#   3) 若上游某版本删掉/改名 `system-prompt` 行，本层会静默失效（日志只留
+#      `patch: entry "system-prompt" not found`），不影响其余功能。
+- id: system-prompt
+  config:
+    # config 是整块替换而不是深合并，因此这里必须把该行拥有的键**全量**写出。
+    # 少写 personaPrefix 会把 dsh-web-app 的 web 人格前缀抹成空串（静默副作用）。
+    personaPrefix: ''
+    includeHarnessIdentity: false

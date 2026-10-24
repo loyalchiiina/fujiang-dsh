@@ -1,4 +1,4 @@
-﻿# Dot-source this file, then call Ensure-FujiangRuntime. No work runs on import.
+# Dot-source this file, then call Ensure-FujiangRuntime. No work runs on import.
 
 function Get-FujiangWindowsArchitecture {
     param([string]$Architecture)

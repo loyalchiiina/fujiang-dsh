@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Fujiang Armor",
+    "description": "Injects a two-layer system prompt (core + reinforced mirror), exposes a fujiang_profile tool, and shows a live armor badge above the composer."
+  }
+}

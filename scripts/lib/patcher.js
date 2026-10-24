@@ -133,11 +133,16 @@ export function applyPhase1Patch(dshHome = findDshHome()) {
 export function applyCordisPatch(profileDir, pluginName = "fujiang-armor") {
   const patchPath = path.join(profileDir, "cordis.patch.yml");
   const overlayBlock = `# [fujiang-armor] System-Prompt & Plugin Mount
+# 每个 entry 只能有一个动词键：覆盖行与 insert 行必须拆成两个 entry。
+# config 是整块替换、不是深合并，所以把该行要用的键全部重述一遍。
+# 不要写 {{cwd}}：0.2.1 起内置插值变量只剩 {{model}} / {{provider}}，
+# 未注册变量会在渲染系统提示时抛错，导致每次模型请求失败。
 - id: system-prompt
   config:
     includeHarnessIdentity: false
+    includeRuntimeContext: true
     personaPrefix: ""
-    personaSuffix: Your working directory is {{cwd}}.
+    personaSuffix: ""
 - insert:
     - id: ${pluginName}
       name: '${pluginName}'

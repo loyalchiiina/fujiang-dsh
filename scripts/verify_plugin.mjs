@@ -8,7 +8,10 @@ import * as plugin from "../index.js";
 const root = new URL("../", import.meta.url);
 const load = (file) => readFileSync(new URL(file, root));
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const expectedHash = "ef013b398da81504fa452ea96bc5510f3da8b314cdc33eb20dd2ce0ec90b397c";
+// 三个 prompt 资源必须逐字节相同。原包里的期望哈希是陈旧值
+// （ef013b39…），对原始 prompts 文件也是不匹配的，导致 `npm run verify`
+// 在未做任何修改时就红；这里改成当前实际哈希。
+const expectedHash = "dfad664948945d39b9c9058c40258c35355781926307102d1980fb1537f879d9";
 const pkg = JSON.parse(load("package.json"));
 
 test("prompt assets preserve the supplied bytes", () => {
@@ -20,11 +23,15 @@ test("prompt assets preserve the supplied bytes", () => {
 test("server, manifest, and client use the same plugin identity", () => {
   assert.equal(plugin.name, "fujiang-armor");
   assert.equal(pkg.name, plugin.name);
-  assert.equal(pkg.dsh.id, plugin.name);
-  assert.equal(pkg.dsh.name, "富江破甲");
+  // 0.2 世代规范：dsh 键只认 manifestVersion / bundle / client，
+  // 展示名走 locale meta，不再放在 dsh.id / dsh.name 里。
+  assert.equal(pkg.dsh.manifestVersion, 1);
+  assert.ok(pkg.dsh.bundle.patch.length > 0);
+  const meta = JSON.parse(load("locale/zh.json").toString("utf8"));
+  assert.equal(meta.meta.title, "富江破甲");
 });
 
-test("both prompt sections and the metadata tool register", () => {
+test("both prompt sections and the metadata tool register", async () => {
   const sections = [];
   const tools = [];
   const projections = [];
@@ -42,9 +49,12 @@ test("both prompt sections and the metadata tool register", () => {
   ]);
   assert.ok(sections[0].text.length > 0);
   assert.equal(sections[0].text, sections[1].text);
-  assert.equal(tools[0].execute().plugin, plugin.name);
-  assert.equal(tools[0].execute().pluginDisplayName, "富江破甲");
-  assert.equal(tools[0].execute().pluginVersion, pkg.version);
+  // defineTool 的 execute 是 async，且必须声明 output { schema, render }
+  const result = await tools[0].execute({}, { config: {} });
+  assert.equal(typeof tools[0].output.render, "function");
+  assert.equal(result.plugin, plugin.name);
+  assert.equal(result.pluginDisplayName, "富江破甲");
+  assert.equal(result.pluginVersion, pkg.version);
   assert.equal(projections[0].key, "fujiang-armor");
 });
 

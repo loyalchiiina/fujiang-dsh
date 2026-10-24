@@ -1,13 +1,15 @@
-# fujiang-armor bundle patch: inserts the plugin into a profile's layer stack.
-# Overlay system-prompt so Harness does not enforce restrictive coding-agent refusals.
-- id: system-prompt
-  config:
-    includeHarnessIdentity: false
-    personaPrefix: ""
-    personaSuffix: Your working directory is {{cwd}}.
+# 富江破甲 (fujiang-armor) bundle 层 —— 主 patch
+#
+# DSH patch 语法硬性要求：顶层是 YAML 序列，**每个 entry 恰好一个动词键**，
+# 动词值必须是"行数组"，insert 行必须有字符串 id 与 name。
+#
+# 本文件只做一件事：把插件本体挂进层栈。
 - insert:
     - id: fujiang-armor
-      name: 'fujiang-armor'
+      name: fujiang-armor
       config:
         enabled: true
         autoApplyOnStart: true
+        dualLayerInjection: true
+        globalOrder: 100
+        reinforceOrder: 200

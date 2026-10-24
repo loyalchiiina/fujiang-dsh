@@ -131,6 +131,9 @@
       }
     });
   } catch (err) {
-    console.warn('[AI Client Sandbox] fujiang-armor runtime error:', err);
+    // 宿主对客户端插件只有一句 `loaded without registering "fujiang-armor"`
+    // 的笼统报错，根因必须留在控制台，且要抛出去让加载链 fail loud。
+    console.error('[AI Client Sandbox] fujiang-armor runtime error:', err);
+    throw err;
   }
 })();

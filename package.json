@@ -1,42 +1,86 @@
 {
   "name": "fujiang-armor",
-  "version": "0.4.3",
-  "description": "富江破甲",
+  "version": "0.4.5",
+  "description": "富江破甲 — DSH 提示词层与客户端状态条插件",
   "license": "CC-BY-NC-SA-4.0",
   "type": "module",
-  "main": "./index.js",
+  "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
-    "./client.js": "./client.js",
-    "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
     "client.js",
     "cordis.patch.yml",
+    "cordis.override.patch.yml",
     "prompts",
-    "tests",
     "scripts",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README-zh.md",
+    "README-es.md",
+    "README-pt.md",
+    "README-hi.md",
     "LICENSE",
     "THIRD-PARTY-NOTICES.md"
   ],
-  "scripts": {
-    "harness:check": "node --check index.js && node --check client.js",
-    "verify": "node scripts/verify_plugin.mjs"
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "system-prompt",
+    "persona"
+  ],
+  "author": "c3cvld7aag (https://github.com/c3cvld7aag)",
+  "contributors": [
+    "loyalchiiina (https://github.com/loyalchiiina) - DSH 0.2.x kernel compatibility"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/loyalchiiina/fujiang-dsh.git"
+  },
+  "homepage": "https://github.com/c3cvld7aag/fujiang-dsh",
+  "bugs": {
+    "url": "https://github.com/loyalchiiina/fujiang-dsh/issues"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0 || >=0.2.1-0 <0.3.0",
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0 || >=0.2.1-0 <0.3.0",
+    "@deepseek-ai/schemastery": "^3.18.2"
   },
   "dsh": {
-    "id": "fujiang-armor",
-    "name": "富江破甲",
-    "version": "0.4.3",
-    "permissions": "系统提示词注入, 客户端状态条",
+    "manifestVersion": 1,
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": [
+        "./cordis.patch.yml",
+        "./cordis.override.patch.yml"
+      ]
     },
     "client": {
       "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
       "immediately": true
     }
+  },
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "harness:check": "node --check index.js && node --check client.js",
+    "verify": "node scripts/verify_plugin.mjs"
   }
 }
